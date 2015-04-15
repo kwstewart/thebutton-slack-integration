@@ -7,3 +7,6 @@ Upload the included flair images to a webserver.  Update the settings with your 
 I've had issues getting a WSS URL to persist.  Sometimes it times out.  Update the settings with your WSS URL.
 
 I've also included the highscore file with the current lowest time (27).  Update as necessary.
+
+Start the server:
+python thebutton.py > thebuttonlogs &
