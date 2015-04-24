@@ -3,13 +3,18 @@ import datetime
 import requests
 import json
 import re
+import locale
+locale.setlocale( locale.LC_ALL, 'en_US.UTF-8' ) 
 
 import thebutton_stats
 import thebutton_config
 
+import logging
+logging.basicConfig(filename=thebutton_config.logFile,level=logging.DEBUG)
+
 class thebutton_slack:
 	
-	logFile = thebutton_config.logFile
+	logFile = open(thebutton_config.logFile, "a")
 	
 	# URL to your Slack Incoming Webhook
 	slackURL =  thebutton_config.slackURL
@@ -79,6 +84,12 @@ class thebutton_slack:
 		# Check dirty presser id is greater than on the last message (means it was pressed)
 		if(m['payload']['participants_text'] > self.lastData['payload']['participants_text']):
 			
+			# Number of participants who simulataneously clicked at this momement
+			litterCount = locale.atoi(m['payload']['participants_text']) - locale.atoi(self.lastData['payload']['participants_text'])
+			
+			if(litterCount > 1):
+				lastBorn = format(locale.atoi(m['payload']['participants_text']) - 1, ",d")
+			
 			# Seconds left on the clock when the button was pressed
 			s = int(self.lastData['payload']['seconds_left'])
 			
@@ -100,20 +111,20 @@ class thebutton_slack:
 			n = c.capitalize()
 			hexColor = self.hexColors[c]
 			i = self.imagePath+c+"-flair.png"
-			self.hourlyStats.incColor(c)
-			#self.overallStats.incColor(c)
+			self.hourlyStats.incColor(c, litterCount)
+			#self.overallStats.incColor(c, litterCount)
 	 
 			# If its a new highscore, use Slack banner formatting
 			if(s < self.highScore):				
 				payload = {
 					"text":"",
-					"username":"filthiest yet! #"+self.lastData['payload']['participants_text'],
+					"username":"filthiest yet! #"+self.lastData['payload']['participants_text']+" - "+lastBorn,
 					"icon_url":i,
 					"attachments": [
 						{
 							"fallback": "A new highscore of "+str(s)+"s has been set",
 							"text": "New High Score of"+str(s)+'s'+" <!channel>",
-							"title": str(s)+'s',
+							"title": str(s)+'s - '+litterCount+' pressers' if litterCount > 1 else ' presser',
 							"pretext": "",
 							"color": hexColor
 						}
@@ -126,9 +137,13 @@ class thebutton_slack:
 			else:			
 				payload = {
 					"text": str(s)+"s", 
-					"username":"filthy presser #"+self.lastData['payload']['participants_text'], 
 					'icon_url':i
 				}
+				
+				if(litterCount == 1):
+					payload['username'] = "filthy presser #"+self.lastData['payload']['participants_text']
+				else:
+					payload['username'] = "filthy pressers #"+self.lastData['payload']['participants_text']+" - "+lastBorn
 			
 			# Send the message to Slack
 			r = requests.post(self.slackURL,data=json.dumps(payload))

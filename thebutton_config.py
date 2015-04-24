@@ -1,6 +1,6 @@
 
 # Log file to write to
-logFile = open("thebutton.log", "a")
+logFile = "thebutton.log"
 	
 # URL to your Slack Incoming Webhook
 slackURL =  "https://hooks.slack.com/services/XXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX"

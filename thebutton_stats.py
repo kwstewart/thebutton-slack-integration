@@ -11,8 +11,8 @@ class thebutton_stats:
 	def setColor(self, color, value):
 		self.colors[color] = value
 
-	def incColor(self, color):
-		self.setColor(color,self.getColor(color) + 1)
+	def incColor(self, color, amount = 1):
+		self.setColor(color,self.getColor(color) + amount)
 		
 	def getTotal(self):
 		return self.colors["red"] + self.colors["orange"] + self.colors["yellow"] + self.colors["green"] + self.colors["blue"] + self.colors["purple"]
