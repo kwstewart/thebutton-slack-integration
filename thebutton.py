@@ -1,19 +1,21 @@
 import websocket
-import time
+import datetime
 import requests
 import json
 import re
-import logging
-logging.basicConfig()
 
+import thebutton_stats
+import thebutton_config
 
 class thebutton_slack:
 	
+	logFile = thebutton_config.logFile
+	
 	# URL to your Slack Incoming Webhook
-	slackURL =  "https://hooks.slack.com/services/XXXXXX/XXXXXX/XXXXXXXX"
+	slackURL =  thebutton_config.slackURL
 	
 	# Path to the directory that contains the flair images 
-	imagePath = "http://path.to/the/directory/that/contains/the/flair/images/"
+	imagePath = thebutton_config.imagePath
 	
 	# URL to the button WSS feed 
 	buttonWSS = "";
@@ -23,6 +25,26 @@ class thebutton_slack:
 	
 	# Keep track of the previous button data
 	lastData = {}
+	
+	# Keep track of running statistics
+	#overallStats = thebutton_stats.thebutton_stats()
+	hourlyStats = thebutton_stats.thebutton_stats()
+	
+	colorNames = ["purple","blue","green","yellow","orange","red"]
+
+	# Hex colors for the flairs
+	hexColors = {
+		"purple" : "#820080",
+		"blue" : "#0083C7",
+		"green" : "#02BE01",
+		"yellow" : "#E5D900",
+		"orange" : "#E59500",
+		"red" : "#E50000",
+	}
+
+	def log(self, data):
+		self.logFile.write(data+"\n")
+		self.logFile.flush()
 
 	def get_highscore(self):		
 		# Load the highscore from the file 
@@ -34,13 +56,14 @@ class thebutton_slack:
 		self.highScore = s
 		hsFile = open('highscore.txt','w')
 		hsFile.write(str(s))
+		hsFile.close()
 
 	def get_wss_url(self):
-		print "### getting new wss url ###"
+		self.log("### getting new wss url ###")
 		r = requests.get("http://cors-unblocker.herokuapp.com/get?url=https%3A%2F%2Fwww.reddit.com%2Fr%2Fthebutton")
 		wssUrl = re.search(r'wss://wss\.redditmedia\.com\/thebutton\?h=[^"]*',r.text)
 		u = wssUrl.group(0)
-		print u
+		self.log(u)
 		return u
 	
 	# Function to run when a message is received
@@ -59,44 +82,108 @@ class thebutton_slack:
 			# Seconds left on the clock when the button was pressed
 			s = int(self.lastData['payload']['seconds_left'])
 			
-			# Assign the text and color based on the number of seconds
+			# Determine the color
 			if(s >= 52):
-				n = "Purple"
-				hexColor = "#820080"
-				i = self.imagePath+"purple-flair.png"
+				c = "purple"
 			elif(s < 52 and s >=42):
-				n = "Blue"
-				hexColor = "#0083C7"
-				i = self.imagePath+"blue-flair.png"
+				c = "blue"
 			elif(s < 42 and s >=32):
-				n = "Green"
-				hexColor = "#02be01"
-				i = self.imagePath+"green-flair.png"
+				c = "green"
 			elif(s < 32 and s >=22):
-				n = "Yellow"
-				hexColor = "#E5D900"
-				i = self.imagePath+"yellow-flair.png"
+				c = "yellow"
 			elif(s < 22 and s >=12):
-				n = "Orange"
-				hexColor = "#e59500"
-				i = self.imagePath+"orange-flair.png"
+				c = "orange"
 			elif(s < 12 and s >=1):
-				n = "Red"
-				hexColor = "#e50000"
-				i = self.imagePath+"red-flair.png"
+				c = "red"
+	 
+	 		# Assign the text and stuff based on color
+			n = c.capitalize()
+			hexColor = self.hexColors[c]
+			i = self.imagePath+c+"-flair.png"
+			self.hourlyStats.incColor(c)
+			#self.overallStats.incColor(c)
 	 
 			# If its a new highscore, use Slack banner formatting
 			if(s < self.highScore):				
-				payload = {"text":"",'username':"filthiest yet! #"+self.lastData['payload']['participants_text'],'icon_url':i,"attachments": [{"fallback": "A new highscore of "+str(s)+"s has been set","text": "New High Score of"+str(s)+'s'+" <!channel>","title": str(s)+'s',"pretext": "","color": hexColor}]}
+				payload = {
+					"text":"",
+					"username":"filthiest yet! #"+self.lastData['payload']['participants_text'],
+					"icon_url":i,
+					"attachments": [
+						{
+							"fallback": "A new highscore of "+str(s)+"s has been set",
+							"text": "New High Score of"+str(s)+'s'+" <!channel>",
+							"title": str(s)+'s',
+							"pretext": "",
+							"color": hexColor
+						}
+					]
+				}
 				
 				self.set_highscore(s)				
 			
 			# Just use the standard Slack message format for non high scores
 			else:			
-				payload = {'text':str(s)+'s', 'username':"filthy presser #"+self.lastData['payload']['participants_text'], 'icon_url':i}
+				payload = {
+					"text": str(s)+"s", 
+					"username":"filthy presser #"+self.lastData['payload']['participants_text'], 
+					'icon_url':i
+				}
 			
 			# Send the message to Slack
 			r = requests.post(self.slackURL,data=json.dumps(payload))
+		
+		# Send hourly stats
+		now = datetime.datetime.now()
+		if(int(now.minute) == 0 and int(now.second) <= 1):
+			
+			# Get current total
+			t = self.hourlyStats.getTotal()
+			
+			# If the total is 0, skip
+			if(t > 0):
+			
+				payload = {
+					'icon_url': self.imagePath+"statistics.png",
+					'username':"button statistics",
+					#"text":"<!channel> here are the hourly button statistics",
+					"text":"here are the hourly button statistics",
+					"attachments": [
+						{
+							"fallback": "total: "+str(t),
+							"text": "total: "+str(t),
+							"title": "",
+							"pretext": "",
+							"color": "#000000"
+						}
+					]
+				}
+				
+				
+				# Loop through each color's stats
+				for color in self.colorNames:
+					
+					# Skip over the timestamp
+					if color == "start_time":
+						continue
+					
+					# Calculate percentage
+					k = self.hourlyStats.colors[color]
+					p = str(int(100 * k / t))
+					
+					payload["attachments"].append({
+						"fallback": color+": "+str(k)+" ("+p+"%)",
+						"text": str(k)+" ("+p+"%)",
+						"title": "",
+						"pretext": "",
+						"color": self.hexColors[color]
+					})
+					
+				# Send the message to Slack
+				r = requests.post(self.slackURL,data=json.dumps(payload))
+						
+				# Reset hourlyStats
+				self.hourlyStats = thebutton_stats.thebutton_stats()
 	
 		# Save this data to compare with on the next tick
 		self.lastData = m
@@ -104,20 +191,20 @@ class thebutton_slack:
 	
 	# Function to run when there is a connection error
 	def on_error(self,ws, error):
-		print "error: "+"*"*10
-		print error
-		print "*"*17
+		self.log("error: "+"*"*10)
+		self.log(error)
+		self.log("*"*17)
 	
 	# Function to run when the connection closes
 	def on_close(self, ws):
-		print "### closed - attempting to reopen ###"
+		self.log("### closed - attempting to reopen ###")
 		self.buttonWSS = self.get_wss_url()
 		self.init_connection()
 		
 	
 	# Function to run when the connection opens
 	def on_open(self,ws):
-		print "### opening connection ###"
+		self.log("### opening connection ###")
 		def run(*args):
 			st = "Hello %d" % i
 			ws.send(st)
@@ -137,8 +224,7 @@ class thebutton_slack:
 		self.init_connection()
 		
 
-
-
+# Start the script
 if __name__ == "__main__":
 	tbs = thebutton_slack()
 	
